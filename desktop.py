@@ -21,6 +21,10 @@ from theme_utils import (
 )
 import json
 import os
+from drivers import get_driver_manager
+
+# В глобальной области, например, после импортов
+driver_manager = get_driver_manager()
 
 # ---------- ФУНКЦИЯ ПРИМЕНЕНИЯ ТЕМЫ ----------
 def change_bg(master, taskbar):
@@ -98,23 +102,83 @@ class Taskbar:
         self.master = master
         self.frame = tk.Frame(master, height=40)
         self.frame.pack(side="bottom", fill="x")
-
         self.start_btn = tk.Button(self.frame, text="Пуск", font=("Arial", 10),
                                    command=show_start_menu_callback)
         self.start_btn.pack(side="left", padx=5, pady=5)
-
         self.buttons_frame = tk.Frame(self.frame)
         self.buttons_frame.pack(side="left", fill="x", expand=True, padx=5)
-
         self.clock_label = tk.Label(self.frame, font=("Arial", 10))
         self.clock_label.pack(side="right", padx=5, pady=5)
         self.update_clock()
         self.clock_label.bind("<Button-1>", self.show_calendar)
-
         self.window_buttons = {}
         self._after_id = None
 
+        # --- НОВОЕ: привязываем события мыши и клавиатуры ---
+        self.master.bind("<Motion>", self.on_mouse_move)
+        self.master.bind("<ButtonPress>", self.on_mouse_click)
+        self.master.bind("<KeyPress>", self.on_key_press)
+        self.master.bind("<KeyRelease>", self.on_key_release)
+
+        self.last_x, self.last_y = 0, 0
+        self.driver_manager = get_driver_manager()
+
         change_bg(master, self)
+
+    # --- НОВЫЕ ОБРАБОТЧИКИ С ДРАЙВЕРАМИ ---
+
+    def on_mouse_move(self, event):
+        """Обработка движения мыши через драйвер"""
+        raw = {
+            "x": event.x,
+            "y": event.y,
+            "dx": event.x - self.last_x,
+            "dy": event.y - self.last_y,
+            "buttons": 0,  # Tkinter не даёт состояние кнопок в Motion
+        }
+        self.last_x, self.last_y = event.x, event.y
+        processed = self.driver_manager.process_input("mouse", raw)
+        if processed:
+            # Здесь можно обновить позицию курсора или передать в активное окно
+            # Пока просто выводим в консоль для теста
+            print(f"[Драйвер] Мышь: {processed['x']}, {processed['y']}")
+
+    def on_mouse_click(self, event):
+        """Обработка кликов мыши"""
+        raw = {
+            "x": event.x,
+            "y": event.y,
+            "buttons": event.num,  # 1=левая, 2=средняя, 3=правая
+            "dx": 0,
+            "dy": 0,
+        }
+        processed = self.driver_manager.process_input("mouse", raw)
+        if processed:
+            print(f"[Драйвер] Клик: кнопка {processed['buttons']}")
+
+    def on_key_press(self, event):
+        """Обработка нажатия клавиш"""
+        raw = {
+            "key": event.keysym,
+            "modifiers": event.state,
+            "pressed": True,
+        }
+        processed = self.driver_manager.process_input("keyboard", raw)
+        if processed is None:
+            return  # драйвер заблокировал клавишу
+        print(f"[Драйвер] Клавиша нажата: {processed['key']}")
+
+    def on_key_release(self, event):
+        """Обработка отпускания клавиш"""
+        raw = {
+            "key": event.keysym,
+            "modifiers": event.state,
+            "pressed": False,
+        }
+        processed = self.driver_manager.process_input("keyboard", raw)
+        if processed is None:
+            return
+        print(f"[Драйвер] Клавиша отпущена: {processed['key']}")
 
     def update_clock(self):
         from time import strftime
