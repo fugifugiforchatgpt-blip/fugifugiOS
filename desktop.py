@@ -14,17 +14,21 @@ from task_manager import TaskManager
 from sentiment_app import SentimentApp
 from antivirus import AntivirusApp
 from ffgpt_full import FFChat
-from assistant import start_assistant  # <--- ИМПОРТ АССИСТЕНТА
+from assistant import start_assistant
 from theme_utils import (
     load_settings, save_settings, get_theme, set_theme,
     get_bg_color, is_neon_mode, get_neon_theme, NEON_COLORS
 )
+from browser import BrowserApp  # <--- ДОБАВЛЕНО
 import json
 import os
-from drivers import get_driver_manager
+import subprocess
+import sys
+import os
 
-# В глобальной области, например, после импортов
-driver_manager = get_driver_manager()
+def open_browser():
+    script_path = os.path.join(os.path.dirname(__file__), "browser.py")
+    subprocess.Popen([sys.executable, script_path])
 
 # ---------- ФУНКЦИЯ ПРИМЕНЕНИЯ ТЕМЫ ----------
 def change_bg(master, taskbar):
@@ -102,84 +106,67 @@ class Taskbar:
         self.master = master
         self.frame = tk.Frame(master, height=40)
         self.frame.pack(side="bottom", fill="x")
+
         self.start_btn = tk.Button(self.frame, text="Пуск", font=("Arial", 10),
                                    command=show_start_menu_callback)
         self.start_btn.pack(side="left", padx=5, pady=5)
+
         self.buttons_frame = tk.Frame(self.frame)
         self.buttons_frame.pack(side="left", fill="x", expand=True, padx=5)
+
         self.clock_label = tk.Label(self.frame, font=("Arial", 10))
         self.clock_label.pack(side="right", padx=5, pady=5)
         self.update_clock()
         self.clock_label.bind("<Button-1>", self.show_calendar)
+
         self.window_buttons = {}
         self._after_id = None
 
-        # --- НОВОЕ: привязываем события мыши и клавиатуры ---
+        # Привязка событий для драйверов (мышь, клавиатура)
         self.master.bind("<Motion>", self.on_mouse_move)
         self.master.bind("<ButtonPress>", self.on_mouse_click)
         self.master.bind("<KeyPress>", self.on_key_press)
         self.master.bind("<KeyRelease>", self.on_key_release)
-
         self.last_x, self.last_y = 0, 0
+        from drivers import get_driver_manager
         self.driver_manager = get_driver_manager()
 
         change_bg(master, self)
 
-    # --- НОВЫЕ ОБРАБОТЧИКИ С ДРАЙВЕРАМИ ---
-
+    # ---------- Обработчики с драйверами ----------
     def on_mouse_move(self, event):
-        """Обработка движения мыши через драйвер"""
         raw = {
             "x": event.x,
             "y": event.y,
             "dx": event.x - self.last_x,
             "dy": event.y - self.last_y,
-            "buttons": 0,  # Tkinter не даёт состояние кнопок в Motion
+            "buttons": 0,
         }
         self.last_x, self.last_y = event.x, event.y
         processed = self.driver_manager.process_input("mouse", raw)
         if processed:
-            # Здесь можно обновить позицию курсора или передать в активное окно
-            # Пока просто выводим в консоль для теста
-            print(f"[Драйвер] Мышь: {processed['x']}, {processed['y']}")
+            # можно передать в активное окно, но пока просто логируем
+            pass
 
     def on_mouse_click(self, event):
-        """Обработка кликов мыши"""
-        raw = {
-            "x": event.x,
-            "y": event.y,
-            "buttons": event.num,  # 1=левая, 2=средняя, 3=правая
-            "dx": 0,
-            "dy": 0,
-        }
+        raw = {"x": event.x, "y": event.y, "buttons": event.num, "dx": 0, "dy": 0}
         processed = self.driver_manager.process_input("mouse", raw)
         if processed:
-            print(f"[Драйвер] Клик: кнопка {processed['buttons']}")
+            pass
 
     def on_key_press(self, event):
-        """Обработка нажатия клавиш"""
-        raw = {
-            "key": event.keysym,
-            "modifiers": event.state,
-            "pressed": True,
-        }
+        raw = {"key": event.keysym, "modifiers": event.state, "pressed": True}
         processed = self.driver_manager.process_input("keyboard", raw)
         if processed is None:
-            return  # драйвер заблокировал клавишу
-        print(f"[Драйвер] Клавиша нажата: {processed['key']}")
+            return "break"
 
     def on_key_release(self, event):
-        """Обработка отпускания клавиш"""
-        raw = {
-            "key": event.keysym,
-            "modifiers": event.state,
-            "pressed": False,
-        }
+        raw = {"key": event.keysym, "modifiers": event.state, "pressed": False}
         processed = self.driver_manager.process_input("keyboard", raw)
         if processed is None:
-            return
-        print(f"[Драйвер] Клавиша отпущена: {processed['key']}")
+            return "break"
 
+    # ---------- Остальные методы Taskbar ----------
     def update_clock(self):
         from time import strftime
         if self.clock_label.winfo_exists():
@@ -257,6 +244,8 @@ class Taskbar:
                         session_data.append("TaskManager")
                     elif "Голосовой помощник" in title:
                         session_data.append("Assistant")
+                    elif "FugiFugi Browser" in title:
+                        session_data.append("BrowserApp")
             except:
                 continue
         return session_data
@@ -341,7 +330,7 @@ class StartMenu:
         self.window.lift()
         self.window.focus_force()
         self.window.overrideredirect(True)
-        self.window.geometry(f"300x700+{x}+{y - 660}")  # Увеличенная высота
+        self.window.geometry(f"260x560+{x}+{y - 560}")
 
         settings = load_settings()
         neon_mode = settings.get("neon_mode", False)
@@ -373,20 +362,65 @@ class StartMenu:
             ("🧠 Фуги Фуги ИИ (Sentiment)", lambda: SentimentApp(master, taskbar)),
             ("🧠 ФФGPT (чат)", lambda: FFChat(tk.Toplevel(master))),
             ("🛡️ Очистка системы", lambda: AntivirusApp(master, taskbar)),
+            ("🌐 Браузер", open_browser),
             ("⚙️ Параметры", lambda: SettingsWindow(master, taskbar, lambda: change_bg(master, taskbar))),
             ("📊 Диспетчер задач", lambda: TaskManager(master, taskbar)),
-            ("🎤 Голосовой помощник", lambda: start_assistant(master, master, taskbar)),  # <--- ИСПРАВЛЕНО
+            ("🎤 Голосовой помощник", lambda: start_assistant(master, master, taskbar)),
             ("🚪 Выход...", lambda: ExitDialog(master, taskbar))
         ]
 
-        for text, cmd in apps:
-            btn = tk.Button(self.window, text=text, font=("Arial", 11),
-                            bg=btn_bg, fg=fg, relief="flat", anchor="w", command=cmd)
-            btn.pack(fill="x", padx=5, pady=3)
+        content = tk.Frame(self.window, bg=bg)
+        content.pack(fill="both", expand=True, padx=5, pady=5)
 
-        close_btn = tk.Button(self.window, text="Закрыть", command=self.window.destroy,
+        self.canvas = tk.Canvas(content, bg=bg, highlightthickness=0, width=230)
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        self.scrollbar = tk.Scrollbar(content, orient="vertical", command=self.canvas.yview)
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.inner = tk.Frame(self.canvas, bg=bg)
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self.canvas.bind("<Button-4>", self._on_mousewheel)
+        self.canvas.bind("<Button-5>", self._on_mousewheel)
+
+        for text, cmd in apps:
+            btn = tk.Button(self.inner, text=text, font=("Arial", 11),
+                            bg=btn_bg, fg=fg, relief="flat", anchor="w", command=cmd)
+            btn.pack(fill="x", padx=2, pady=3)
+
+        close_btn = tk.Button(self.inner, text="Закрыть", command=self.window.destroy,
                               bg=btn_bg, fg=fg)
         close_btn.pack(side="bottom", pady=5)
+
+        self._update_scrollregion()
+
+    def _on_canvas_configure(self, event):
+        if self.canvas.winfo_exists():
+            self.canvas.itemconfig(self.canvas_window, width=max(200, event.width))
+            self._update_scrollregion()
+
+    def _on_mousewheel(self, event):
+        if self.canvas.winfo_exists():
+            try:
+                if event.num == 4:
+                    self.canvas.yview_scroll(-1, "units")
+                elif event.num == 5:
+                    self.canvas.yview_scroll(1, "units")
+                else:
+                    steps = int(-event.delta / 120)
+                    self.canvas.yview_scroll(steps, "units")
+            except Exception:
+                pass
+            return "break"
+
+    def _update_scrollregion(self):
+        if self.canvas.winfo_exists():
+            self.inner.update_idletasks()
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
 # ---------- ВОССТАНОВЛЕНИЕ СЕССИИ ----------
 def restore_session(master, taskbar):
@@ -421,7 +455,9 @@ def restore_session(master, taskbar):
         elif app_name == "FFChat":
             FFChat(tk.Toplevel(master))
         elif app_name == "Assistant":
-            start_assistant(master, master, taskbar)  # <--- ИСПРАВЛЕНО
+            start_assistant(master, master, taskbar)
+        elif app_name == "BrowserApp":             # <--- ДОБАВЛЕНО
+            BrowserApp(master, taskbar)
     taskbar.clear_session_file()
 
 # ---------- РАБОЧИЙ СТОЛ ----------
@@ -462,8 +498,9 @@ def show_desktop(master):
     make_shortcut("🧠 Фуги Фуги ИИ (Sentiment)", lambda: SentimentApp(master, taskbar))
     make_shortcut("🧠 ФФGPT", lambda: FFChat(tk.Toplevel(master)))
     make_shortcut("🛡️ Очистка системы", lambda: AntivirusApp(master, taskbar))
+    make_shortcut("🌐 Браузер", open_browser)
     make_shortcut("⚙️ Параметры", lambda: SettingsWindow(master, taskbar, lambda: change_bg(master, taskbar)))
-    make_shortcut("🎤 Голосовой помощник", lambda: start_assistant(master, master, taskbar))  # <--- ИСПРАВЛЕНО
+    make_shortcut("🎤 Голосовой помощник", lambda: start_assistant(master, master, taskbar))
 
     title = tk.Label(workspace, text="Добро пожаловать в Fugi_fugi OS!",
                      font=("Arial", 24))
